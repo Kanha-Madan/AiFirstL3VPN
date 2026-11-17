@@ -56,7 +56,7 @@ AiFirstL3VPN/
 | Java | 17 | `brew install openjdk@17` |
 | Python | 3.11 | NSO Python VM |
 | Cursor | with the `.cursor/` agents in this repo | for the AI-first build |
-| `aifirst` CLI | `~/.aifirst/bin/aifirst` | spec / package-memory commands |
+| `aifirst` CLI | `~/.aifirst/bin/aifirst` | spec / package-memory commands — install in 3.0 |
 | GitHub CLI | `gh` | only for publishing |
 
 This demo reuses the NSO lab from the sibling project **NSO_Demo**
@@ -75,6 +75,17 @@ devices `pe0`/`pe1` and the runtime directory `nso/ncs-run`.
 ## 3. First-time setup
 
 Each block states the directory it is run from (📁).
+
+### 3.0 Install the `aifirst` CLI (once)
+
+```bash
+# 📁 anywhere
+curl -fsSL https://wwwin-github.cisco.com/raw/cxsao/aifirst-cli/refs/heads/master/install.sh | bash
+```
+
+The installer is on Cisco's internal GitHub, so you need to be on the Cisco
+network/VPN. It installs to `~/.aifirst/bin/aifirst`; open a new terminal (or
+add `~/.aifirst/bin` to `PATH`) and check with `which aifirst`.
 
 ### 3.1 Install NSO and the IOS-XR NED (once)
 
