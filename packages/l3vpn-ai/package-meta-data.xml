@@ -1,0 +1,17 @@
+<ncs-package xmlns="http://tail-f.com/ns/ncs-packages">
+  <name>l3vpn-ai</name>
+  <package-version>1.0.0</package-version>
+  <description>L3VPN PE attachment on IOS-XR: VRF, QoS police/shape, QinQ sub-interface, BGP VRF</description>
+  <ncs-min-version>6.6</ncs-min-version>
+
+  <required-package>
+    <name>cisco-iosxr-cli-7.74</name>
+  </required-package>
+
+  <component>
+    <name>main</name>
+    <application>
+      <python-class-name>l3vpn_ai.main.Main</python-class-name>
+    </application>
+  </component>
+</ncs-package>

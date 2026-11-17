@@ -1,0 +1,267 @@
+project_metadata:
+  project_name: "l3vpn-ai"
+  version: "1.0.0"
+  description: "L3VPN customer attachment on an IOS-XR PE: VRF with route-targets and maximum-prefix, ingress police / egress shape QoS, QinQ sub-interface in the VRF, and BGP VRF with RD, label mode per-vrf, dampening and redistribution."
+  source_document: "docs/LLD_L3VPN_PE_Attachment.md"
+
+development_preferences:
+  nso_version: "6.6.1"
+  ned_type: "cisco-iosxr-cli"
+  package_structure: "standard-blueprint"
+  code_pattern: "python"   # python-and-template: Python computes derived values, XML templates render device config
+
+network_context:
+  topology_type: "Standalone"   # Options: Standalone, LSA
+
+environment:
+  ncs_dir: "/Users/kanhmada/Projects/NSO_Demo/nso/nso661"
+  ncs_run_dir: "/Users/kanhmada/Projects/NSO_Demo/nso/ncs-run"
+  ned_package: "/Users/kanhmada/Projects/NSO_Demo/nso/neds/cisco-iosxr-cli-7.74"
+  netsim_dir: "/Users/kanhmada/Projects/NSO_Demo/nso/netsim"
+  ned_xml_capture: "/Users/kanhmada/Projects/NSO_Demo/output/pe1-captured.xml"
+  reuse_existing: "true"   # do NOT reinstall NSO / NED / netsim
+  do_not_touch_packages:
+    - "l3vpn-service"
+
+devices:
+  - name: "pe0"
+    role: "PE"
+    vendor: "Cisco"
+    model: "IOS-XR (NSO netsim)"
+    os_version: "IOS-XR (netsim, cisco-iosxr-cli-7.74)"
+    management_ip: "127.0.0.1"
+    authgroup: "default"
+    use: "target"
+  - name: "pe1"
+    role: "PE"
+    vendor: "Cisco"
+    model: "IOS-XR (NSO netsim)"
+    os_version: "IOS-XR (netsim, cisco-iosxr-cli-7.74)"
+    management_ip: "127.0.0.1"
+    authgroup: "default"
+    use: "reference-only"   # scratch / reference device — do not deploy to it
+
+services:
+  - service_name: "l3vpn-ai"
+
+    service_variants:
+
+      - subtype: "pe-attachment"
+
+        description: >
+          Single-PE L3VPN customer attachment: VRF + QoS + QinQ sub-interface + BGP VRF
+
+        deployment_model:
+          connectivity_type: "static"
+          routing_protocol: "BGP"
+          topology: "full-mesh"
+
+        supported_devices:
+          - role: "PE"
+            vendor: "Cisco"
+            model: "IOS-XR (NSO netsim)"
+            os_version: "IOS-XR (netsim, cisco-iosxr-cli-7.74)"
+            management_ip: "127.0.0.1"
+
+            ned:
+              type: "cisco-iosxr-cli"
+              version: "7.74.11"
+
+            # Auto-generated from <VARIABLE_NAME> tokens found in this variant's config.
+            # key  = lowercase_snake_case semantic name used by the automation
+            # value = "<ORIGINAL_TOKEN>" exactly as it appears in raw_configuration
+            # comment = short description inferred from surrounding config context
+            instance_variables:
+              vrf_name: "<VRF_NAME>"                    # VRF name for the service instance
+              bgp_as: "<BGP_AS>"                        # Provider BGP AS number (default 9730)
+              rt_value: "<RT_VALUE>"                    # Route-target value (list, direction import/export/both)
+              max_prefix: "<MAX_PREFIX>"                # VRF maximum-prefix limit (default 20000)
+              threshold: "<THRESHOLD>"                  # VRF maximum-prefix threshold percent (default 80)
+              in_policy_name: "<IN_POLICY_NAME>"        # Ingress QoS policy-map name
+              police_rate_bps: "<POLICE_RATE_BPS>"      # Police rate in bps (derived: bandwidth x 1000)
+              burst_bytes: "<BURST_BYTES>"              # Police burst in bytes (derived: rate x 3 // 16, or qos/burst override)
+              peak_burst_bytes: "<PEAK_BURST_BYTES>"    # Police peak-burst in bytes (derived: 2 x burst, or qos/peak-burst override)
+              mpls_exp: "<MPLS_EXP>"                    # MPLS EXP imposition value on conform (default 0)
+              out_policy_name: "<OUT_POLICY_NAME>"      # Egress QoS policy-map name
+              shape_rate_bps: "<SHAPE_RATE_BPS>"        # Shape average rate in bps (derived: bandwidth x 1000)
+              interface_type: "<INTERFACE_TYPE>"        # Sub-interface type (GigabitEthernet)
+              interface_id: "<INTERFACE_ID>"            # Parent interface id (e.g. 0/0/1)
+              subintf_id: "<SUBINTF_ID>"                # Sub-interface number
+              description: "<DESCRIPTION>"              # Interface description string
+              bandwidth: "<BANDWIDTH>"                  # Interface bandwidth in kbps
+              svlan: "<SVLAN>"                          # Outer (S-VLAN) dot1q tag for QinQ encapsulation
+              cvlan: "<CVLAN>"                          # Inner (C-VLAN) second-dot1q tag for QinQ encapsulation
+              ip_address: "<IP_ADDRESS>"                # PE-CE interface IPv4 address
+              subnet_mask: "<SUBNET_MASK>"              # PE-CE interface IPv4 subnet mask
+              ipv6_address: "<IPV6_ADDRESS>"            # PE-CE interface IPv6 address/prefix-length
+              rd_value: "<RD_VALUE>"                    # Route distinguisher value (RD = BGP_AS:RD_VALUE)
+
+            raw_configuration: |
+              vrf <VRF_NAME>
+               address-family ipv4 unicast
+                import route-target
+                 <BGP_AS>:<RT_VALUE>
+                exit
+                export route-target
+                 <BGP_AS>:<RT_VALUE>
+                exit
+                maximum prefix <MAX_PREFIX> <THRESHOLD>
+               exit
+               address-family ipv6 unicast
+                import route-target
+                 <BGP_AS>:<RT_VALUE>
+                exit
+                export route-target
+                 <BGP_AS>:<RT_VALUE>
+                exit
+                maximum prefix <MAX_PREFIX> <THRESHOLD>
+               exit
+              exit
+              policy-map <IN_POLICY_NAME>
+               class class-default
+                police rate <POLICE_RATE_BPS> bps burst <BURST_BYTES> bytes peak-burst <PEAK_BURST_BYTES> bytes
+                 conform-action set mpls experimental imposition <MPLS_EXP>
+                 conform-action transmit
+                 exceed-action drop
+                !
+               !
+               end-policy-map
+              !
+              policy-map <OUT_POLICY_NAME>
+               class class-default
+                shape average <SHAPE_RATE_BPS> bps
+               !
+               end-policy-map
+              !
+              interface <INTERFACE_TYPE><INTERFACE_ID>.<SUBINTF_ID>
+               description <DESCRIPTION>
+               bandwidth <BANDWIDTH>
+               encapsulation dot1q <SVLAN> second-dot1q <CVLAN>
+               service-policy input <IN_POLICY_NAME>
+               service-policy output <OUT_POLICY_NAME>
+               vrf <VRF_NAME>
+               ipv4 address <IP_ADDRESS> <SUBNET_MASK>
+               ipv4 verify unicast source reachable-via any allow-self-ping allow-default
+               ipv4 unreachables disable
+               ipv6 verify unicast source reachable-via any allow-default allow-self-ping
+               ipv6 address <IPV6_ADDRESS>
+               ipv6 unreachables disable
+               no shutdown
+              exit
+              router bgp <BGP_AS>
+               vrf <VRF_NAME>
+                rd <BGP_AS>:<RD_VALUE>
+                address-family ipv4 unicast
+                 label mode per-vrf
+                 bgp dampening
+                 redistribute connected
+                 redistribute static
+                exit
+                address-family ipv6 unicast
+                 label mode per-vrf
+                 bgp dampening
+                 redistribute connected
+                 redistribute static
+                exit
+               exit
+              exit
+
+        # Service model (YANG inputs) — LLD section 9
+        service_model:
+          list_key: "name"
+          leaves:
+            - { leaf: "device-name", token: "<DEVICE>", type: "leafref /ncs:devices/ncs:device/ncs:name", mandatory: "true" }
+            - { leaf: "ipv6-enable", token: "<IPV6_ENABLE>", type: "boolean", default: "true" }
+            - { leaf: "bgp-as", token: "<BGP_AS>", type: "uint32", default: "9730" }
+            - { leaf: "bandwidth", token: "<BANDWIDTH>", type: "uint32 range 1..100000000 (kbps)", mandatory: "true" }
+            - { leaf: "vrf/vrf-name", token: "<VRF_NAME>", type: "string length 1..32", mandatory: "true" }
+            - { leaf: "vrf/rd-value", token: "<RD_VALUE>", type: "uint32", mandatory: "true" }
+            - { leaf: "vrf/route-target{rt-value}", token: "<RT_VALUE>", type: "list key rt-value (uint32), min-elements 1; leaf direction enum import|export|both default both", mandatory: "true" }
+            - { leaf: "vrf/maximum-prefix/limit", token: "<MAX_PREFIX>", type: "uint32", default: "20000" }
+            - { leaf: "vrf/maximum-prefix/threshold", token: "<THRESHOLD>", type: "uint8 range 1..100", default: "80" }
+            - { leaf: "qos/in-policy-name", token: "<IN_POLICY_NAME>", type: "string", mandatory: "true" }
+            - { leaf: "qos/out-policy-name", token: "<OUT_POLICY_NAME>", type: "string", mandatory: "true" }
+            - { leaf: "qos/mpls-exp", token: "<MPLS_EXP>", type: "uint8 range 0..7", default: "0" }
+            - { leaf: "qos/burst", token: "", type: "uint32 bytes (optional override of <BURST_BYTES>)" }
+            - { leaf: "qos/peak-burst", token: "", type: "uint32 bytes (optional override of <PEAK_BURST_BYTES>)" }
+            - { leaf: "interface/interface-type", token: "<INTERFACE_TYPE>", type: "enum GigabitEthernet", mandatory: "true" }
+            - { leaf: "interface/interface-id", token: "<INTERFACE_ID>", type: "string pattern [0-9]+(/[0-9]+)*", mandatory: "true" }
+            - { leaf: "interface/subintf-id", token: "<SUBINTF_ID>", type: "uint32 range 1..2147483647", mandatory: "true" }
+            - { leaf: "interface/description", token: "<DESCRIPTION>", type: "string" }
+            - { leaf: "interface/svlan", token: "<SVLAN>", type: "uint16 range 1..4094", mandatory: "true" }
+            - { leaf: "interface/cvlan", token: "<CVLAN>", type: "uint16 range 1..4094", mandatory: "true" }
+            - { leaf: "interface/ip-address", token: "<IP_ADDRESS>", type: "inet:ipv4-address", mandatory: "true" }
+            - { leaf: "interface/subnet-mask", token: "<SUBNET_MASK>", type: "inet:ipv4-address (dotted mask)", mandatory: "true" }
+            - { leaf: "interface/ipv6-address", token: "<IPV6_ADDRESS>", type: "inet:ipv6-prefix; when ipv6-enable = true; must be set when ipv6-enable = true", mandatory: "conditional" }
+
+        # Derived values (computed in Python, not user inputs) — LLD section 10
+        derived_values:
+          police_rate_bps: "bandwidth * 1000"
+          shape_rate_bps: "bandwidth * 1000"
+          burst_bytes: "qos/burst if set else police_rate_bps * 3 // 16"
+          peak_burst_bytes: "qos/peak-burst if set else 2 * burst_bytes"
+          subinterface_id: "interface-id + '.' + subintf-id"
+
+        # Conditional logic — LLD section 12
+        conditional_logic:
+          - "ipv6-enable = false: omit VRF ipv6 AF, interface ipv6 verify/address/unreachables, BGP VRF ipv6 AF"
+          - "ipv6-enable = true and no ipv6-address: reject commit with 'interface/ipv6-address is required when ipv6-enable is true'"
+          - "route-target direction import: render only under import route-target (both AFs)"
+          - "route-target direction export: render only under export route-target (both AFs)"
+          - "route-target direction both (default): render under import and export"
+          - "multiple route-targets: one line per entry in each applicable block"
+          - "qos/burst or qos/peak-burst set: use given value instead of computed"
+
+        # NED data-model notes (cisco-iosxr-cli-7.74, verified by capture) — LLD section 13
+        ned_notes:
+          - "maximum prefix: maximum/prefix/limit and mid-thresh (not threshold)"
+          - "police: police-rate-unit/police/rate/{cir, cir-unit, burst, burst-units, peak-burst, peak-burst-units}; conform-action/exceed-action are inside rate"
+          - "shape: class-default/shape/average/{rate, rate-unit}"
+          - "sub-interface: interface/GigabitEthernet-subinterface/GigabitEthernet{id = 0/0/1.5002}"
+          - "encapsulation: encapsulation/dot1q/{vlan-id, second-dot1q}"
+          - "ipv6 address: ipv6/address/prefix-list{prefix}"
+          - "router bgp: router/bgp/bgp-no-instance{id}/vrf{name}/rd"
+          - "no shutdown: not templated (NED renders it for new sub-interfaces)"
+
+        # Acceptance data — LLD section 14 (concrete test instance on pe0)
+        sample_instance:
+          name: "MSHA-ML3-1-810095"
+          device_name: "pe0"
+          ipv6_enable: "true"
+          bandwidth: "1676"
+          vrf_name: "MSHA-ML-M"
+          rd_value: "71728651"
+          rt_value: "71728651"
+          rt_direction: "both"
+          max_prefix: "20000"
+          threshold: "80"
+          in_policy_name: "in_STANDARD_ETH_1676_By_NSO"
+          out_policy_name: "out_STANDARD_ETH_1676_By_NSO"
+          mpls_exp: "0"
+          interface_type: "GigabitEthernet"
+          interface_id: "0/0/1"
+          subintf_id: "5002"
+          description: "MSHA-ML3-1-810095-kjajj-1676k-MSHA-ML3-1-217121-05122024"
+          svlan: "3714"
+          cvlan: "1260"
+          ip_address: "52.45.120.133"
+          subnet_mask: "255.255.255.252"
+          ipv6_address: "5936:3532::1/126"
+          expected_dry_run_contains:
+            - "police rate 1676000 bps burst 314250 bytes peak-burst 628500 bytes"
+            - "shape average 1676000 bps"
+            - "rd 9730:71728651"
+            - "interface GigabitEthernet 0/0/1.5002"
+
+        # Test cases T1..T10 — LLD section 15
+        test_cases:
+          - "T1: create sample instance, dry-run native matches raw_configuration with substituted values"
+          - "T2: commit, check-sync service and device -> in-sync"
+          - "T3: bandwidth 2000 dry-run -> only police/shape/bandwidth diffs (2000000 / 375000 / 750000)"
+          - "T4: ipv6-enable false (no ipv6-address) -> no IPv6 lines"
+          - "T5: ipv6-enable true without ipv6-address -> commit aborted with must error"
+          - "T6: no route-target -> commit aborted (min-elements 1)"
+          - "T7: route-target direction import -> rendered only under import"
+          - "T8: svlan 0 or 4095 -> rejected by range"
+          - "T9: manual device change then check-sync / re-deploy -> out of sync, then restored"
+          - "T10: delete service dry-run -> removes only VRF, policy-maps, sub-interface, BGP VRF"

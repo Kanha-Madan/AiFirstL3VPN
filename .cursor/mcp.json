@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "Cisco Crosswork NSO Documentation": {
+      "type": "http",
+      "url": "https://nso-docs.cisco.com/~gitbook/mcp"
+    }
+  }
+}

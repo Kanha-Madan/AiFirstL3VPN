@@ -1,0 +1,92 @@
+---
+description: "Use when: building NSO service packages from a spec, deciding whether a request is a new package or a change to an existing one, or reading/writing the aifirstspec/ package-memory store. Triggers: 'build from spec', 'new package or modify', 'what packages exist', 'aifirst spec', 'package memory', 'aifirstspec', 'spec plan', 'backfill packages', 'discover packages'."
+alwaysApply: false
+---
+
+# aifirstspec/ — Package Memory Convention
+
+`aifirstspec/` is the committed, agent-readable **package-memory store** for NSO
+service packages, maintained by the **aifirst CLI** (`aifirst spec …`). It is the
+durable, cross-session source of truth for **what packages exist, from which spec
+they were built, and what changed since** — so a fresh session can tell a **new**
+package apart from a **modification** of an existing one.
+
+> **Minimum CLI version:** `aifirst spec` ships in the first aifirst release
+> **after `v1.0.3-alpha`**. Detect support by probing for the subcommand (e.g.
+> `aifirst spec` prints its usage) rather than parsing a version string. If the
+> installed CLI lacks the `spec` subcommand, degrade gracefully (read
+> `aifirstspec/packages-registry.md` directly) and warn that memory features are
+> limited — never block a build on package memory.
+
+> **Authoritative command surface:** the CLI evolves, so the **live usage output
+> of `aifirst spec` (and `aifirst spec change`) is the source of truth** for
+> flags and verbs. The command tables below are a convenience snapshot — if a
+> command errors on usage (exit `2`), re-check the live usage rather than trusting
+> this file. Do **not** copy the CLI's own reference (`docs/spec-commands.md` in
+> the aifirst_cli repo) into any skill; a second copy only drifts.
+
+## Store layout
+
+```
+aifirstspec/
+  specs/<package-id>/spec.md     # living as-built truth for one package
+  changes/<date>-<slug>/         # one build/modify run
+    proposal.md  tasks.md  spec-snapshot.yaml   # immutable snapshot as built
+  changes/archive/               # completed, dated, PR-linked runs
+  packages-registry.md           # index: id → service/variant → status → change → PR → provenance → confidence
+  config.yaml                    # detected packages_root, etc.
+```
+
+- **Owned by aifirst, not openspec.** Do not run the `openspec` binary against
+  `aifirstspec/`; only `aifirst spec …` reads and writes it.
+- **Package identity** is deterministic: `kebab(service_name)-kebab(subtype)`
+  (e.g. `l3vpn-full-mesh`). It is the join key across the registry, planner, and
+  backfill.
+- **Snapshots are immutable** and record instance-variable **keys only** — never
+  secret/credential values.
+
+## The CLI ↔ skill contract
+
+All deterministic work is the CLI's; the skill only branches on results. Commands
+share an exit-code contract: `0` ok · `1` error · `2` usage · `3` cancelled ·
+`5` identity collision.
+
+| Command | Use |
+|---|---|
+| `aifirst spec init` | scaffold the store (idempotent; also run on `aifirst install`) |
+| `aifirst spec discover` | brownfield: find packages by `package-meta-data.xml`, detect packages-root |
+| `aifirst spec backfill --shallow` | seed stub as-built specs for discovered packages (`confidence: low`) |
+| `aifirst spec plan --spec <yaml>` | per-package **NEW / MODIFY / NOOP** as JSON |
+| `aifirst spec view` / `show <id>` | orient on project state (dashboard / one package) |
+| `aifirst spec change new --spec <yaml> [--name <slug>]` | open **one** change covering every variant in the spec + freeze snapshot |
+| `aifirst spec change archive <name> --pr <url> --status <s>` | close that change, update living specs + registry |
+
+## How to use it in a build
+
+1. `aifirst spec init` (idempotent).
+2. First run on an existing repo → `aifirst spec discover` + `aifirst spec
+   backfill --shallow` to record current state.
+3. `aifirst spec plan --spec <spec>` → for each package: **NEW** = scaffold fresh;
+   **MODIFY** = edit the existing package in place (deep-backfill its stored spec
+   from YANG/templates first if it is a shallow `confidence: low` stub); **NOOP**
+   = skip.
+   - **Reconcile `NEW` against in-flight work.** `plan` diffs against the durable
+     registry, which is only written at **archive** — so a package whose build is
+     still open reads as `NEW` even though it exists on disk under an active
+     change. Before scaffolding a `NEW`, run `aifirst spec view` and check
+     **Active changes**; if one already covers this spec's service, **resume it**
+     (`aifirst spec change new --spec <spec> --force`) and edit in place instead of
+     re-scaffolding. (Branch on `plan`'s `active_change` field directly once the
+     CLI provides it.)
+4. `aifirst spec change new --spec <spec>` **once** before building — it covers
+   every variant in the spec and is keyed by a change `<name>` (defaults to the
+   kebab-cased service name(s); pass `--name <slug>` to override). A change name
+   allows only one active instance — re-raise with `--force` if the spec changed.
+   After a green, published build, `aifirst spec change archive <name> --pr <url>
+   --status deployed` **once** to close it.
+
+Full build workflow: the
+[af-nso-spec-orchestrator](../skills/af-nso-spec-orchestrator/SKILL.md) skill
+(Step 0 consult, Step 7 archive). End-to-end flow (author → register → build →
+archive):
+[spec-driven-flow.md](../skills/af-nso-spec-orchestrator/references/spec-driven-flow.md).

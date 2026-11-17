@@ -1,0 +1,31 @@
+---
+description: "Use when: creating, building, modifying, or generating an NSO service package, YANG model, service template, Python callback, package-meta-data.xml, or any NSO package scaffold. Triggers: 'create service package', 'generate NSO service', 'build NSO package', 'add service', 'modify service package', 'update YANG', 'create template', 'NSO package'."
+alwaysApply: false
+---
+
+# NSO Service Package Requests
+
+When the user asks to **create, build, modify, or generate** any NSO service package or related artifact (YANG model, service template, Python callback, package scaffold), **immediately delegate to the NSO Agent** without attempting the task yourself first.
+
+## Required Behavior
+
+1. Check whether the **NSO Agent** is available in the current session.
+2. If available: invoke it straight away using `runSubagent` with `agentName: "NSO Agent"`. Do **not** attempt to implement or scaffold the package yourself before calling the agent.
+3. If unavailable: inform the user that the NSO Agent is not available and ask whether to proceed manually.
+
+## Trigger Phrases
+
+These phrases (and close variants) should immediately trigger delegation:
+
+- create / generate / build / scaffold a service package
+- create / modify an NSO service
+- add a new package
+- update YANG model / service template / Python callback
+- onboard device / create netsim / reload packages
+- native config to service / device config to YANG
+
+## Context to Pass
+
+When invoking the NSO Agent, always pass:
+- The user's original request verbatim
+- Any relevant file paths already mentioned (e.g., input configs, existing package names)

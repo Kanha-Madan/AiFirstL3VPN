@@ -1,0 +1,19 @@
+# Reference generated-repository testbed. Credential values are supplied only
+# by the runtime variables named below.
+
+testbed:
+  nso:
+    scheme: http
+    url_env: NSO_RESTCONF_URL
+    host_env: NSO_HOST
+    port_env: NSO_PORT
+    default_port: 8080
+    username_env: NSO_RESTCONF_USER
+    password_env: NSO_RESTCONF_PASSWORD
+  devices:
+    service-device:
+      name: xr0
+      name_env: SERVICE_DEVICE_NAME
+      ned_id: cisco-iosxr-cli-7.75
+      ports:
+        - GigabitEthernet0/0/0/1

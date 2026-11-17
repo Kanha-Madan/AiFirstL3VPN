@@ -1,0 +1,246 @@
+<config-template xmlns="http://tail-f.com/ns/config/1.0">
+  <devices xmlns="http://tail-f.com/ns/ncs">
+    <device>
+      <name>{$DEVICE}</name>
+      <config>
+
+        <!-- VRF -->
+        <vrf xmlns="http://tail-f.com/ned/cisco-ios-xr">
+          <vrf-list>
+            <name>{$VRF_NAME}</name>
+            <address-family>
+              <ipv4>
+                <unicast>
+                  <import>
+                    <route-target>
+                      <?foreach {/vrf/route-target[direction != 'export']}?>
+                      <address-list>
+                        <name>{$BGP_AS}:{rt-value}</name>
+                      </address-list>
+                      <?end?>
+                    </route-target>
+                  </import>
+                  <export>
+                    <route-target>
+                      <?foreach {/vrf/route-target[direction != 'import']}?>
+                      <address-list>
+                        <name>{$BGP_AS}:{rt-value}</name>
+                      </address-list>
+                      <?end?>
+                    </route-target>
+                  </export>
+                  <maximum>
+                    <prefix>
+                      <limit>{$MAX_PREFIX}</limit>
+                      <mid-thresh>{$THRESHOLD}</mid-thresh>
+                    </prefix>
+                  </maximum>
+                </unicast>
+              </ipv4>
+              <?if {$IPV6_ENABLE = 'true'}?>
+              <ipv6>
+                <unicast>
+                  <import>
+                    <route-target>
+                      <?foreach {/vrf/route-target[direction != 'export']}?>
+                      <address-list>
+                        <name>{$BGP_AS}:{rt-value}</name>
+                      </address-list>
+                      <?end?>
+                    </route-target>
+                  </import>
+                  <export>
+                    <route-target>
+                      <?foreach {/vrf/route-target[direction != 'import']}?>
+                      <address-list>
+                        <name>{$BGP_AS}:{rt-value}</name>
+                      </address-list>
+                      <?end?>
+                    </route-target>
+                  </export>
+                  <maximum>
+                    <prefix>
+                      <limit>{$MAX_PREFIX}</limit>
+                      <mid-thresh>{$THRESHOLD}</mid-thresh>
+                    </prefix>
+                  </maximum>
+                </unicast>
+              </ipv6>
+              <?end?>
+            </address-family>
+          </vrf-list>
+        </vrf>
+
+        <!-- Ingress QoS: police -->
+        <policy-map xmlns="http://tail-f.com/ned/cisco-ios-xr">
+          <name>{$IN_POLICY_NAME}</name>
+          <class>
+            <class-default>
+              <map>class-default</map>
+              <police-rate-unit>
+                <police>
+                  <rate>
+                    <cir>{$POLICE_RATE_BPS}</cir>
+                    <cir-unit>bps</cir-unit>
+                    <burst>{$BURST_BYTES}</burst>
+                    <burst-units>bytes</burst-units>
+                    <peak-burst>{$PEAK_BURST_BYTES}</peak-burst>
+                    <peak-burst-units>bytes</peak-burst-units>
+                    <conform-action>
+                      <set>
+                        <mpls>
+                          <experimental>
+                            <imposition>{$MPLS_EXP}</imposition>
+                          </experimental>
+                        </mpls>
+                      </set>
+                      <transmit/>
+                    </conform-action>
+                    <exceed-action>
+                      <drop/>
+                    </exceed-action>
+                  </rate>
+                </police>
+              </police-rate-unit>
+            </class-default>
+          </class>
+        </policy-map>
+
+        <!-- Egress QoS: shape -->
+        <policy-map xmlns="http://tail-f.com/ned/cisco-ios-xr">
+          <name>{$OUT_POLICY_NAME}</name>
+          <class>
+            <class-default>
+              <map>class-default</map>
+              <shape>
+                <average>
+                  <rate>{$SHAPE_RATE_BPS}</rate>
+                  <rate-unit>bps</rate-unit>
+                </average>
+              </shape>
+            </class-default>
+          </class>
+        </policy-map>
+
+        <!-- QinQ sub-interface -->
+        <interface xmlns="http://tail-f.com/ned/cisco-ios-xr">
+          <?if {$INTERFACE_TYPE = 'GigabitEthernet'}?>
+          <GigabitEthernet-subinterface>
+            <GigabitEthernet>
+              <id>{$SUBINTF_FULL_ID}</id>
+              <?if {$DESCRIPTION != ''}?>
+              <description>{$DESCRIPTION}</description>
+              <?end?>
+              <bandwidth>{$BANDWIDTH}</bandwidth>
+              <encapsulation>
+                <dot1q>
+                  <vlan-id>{$SVLAN}</vlan-id>
+                  <second-dot1q>{$CVLAN}</second-dot1q>
+                </dot1q>
+              </encapsulation>
+              <service-policy>
+                <input>
+                  <name>{$IN_POLICY_NAME}</name>
+                </input>
+                <output>
+                  <name>{$OUT_POLICY_NAME}</name>
+                </output>
+              </service-policy>
+              <vrf>{$VRF_NAME}</vrf>
+              <ipv4>
+                <address>
+                  <ip>{$IP_ADDRESS}</ip>
+                  <mask>{$SUBNET_MASK}</mask>
+                </address>
+                <verify>
+                  <unicast>
+                    <source>
+                      <reachable-via>any</reachable-via>
+                      <allow-self-ping/>
+                      <allow-default/>
+                    </source>
+                  </unicast>
+                </verify>
+                <unreachables>
+                  <disable/>
+                </unreachables>
+              </ipv4>
+              <?if {$IPV6_ENABLE = 'true'}?>
+              <ipv6>
+                <verify>
+                  <unicast>
+                    <source>
+                      <reachable-via>any</reachable-via>
+                      <allow-default/>
+                      <allow-self-ping/>
+                    </source>
+                  </unicast>
+                </verify>
+                <address>
+                  <prefix-list>
+                    <prefix>{$IPV6_ADDRESS}</prefix>
+                  </prefix-list>
+                </address>
+                <unreachables>
+                  <disable/>
+                </unreachables>
+              </ipv6>
+              <?end?>
+            </GigabitEthernet>
+          </GigabitEthernet-subinterface>
+          <?end?>
+        </interface>
+
+        <!-- BGP VRF -->
+        <router xmlns="http://tail-f.com/ned/cisco-ios-xr">
+          <bgp>
+            <bgp-no-instance>
+              <id>{$BGP_AS}</id>
+              <vrf>
+                <name>{$VRF_NAME}</name>
+                <rd>{$BGP_AS}:{$RD_VALUE}</rd>
+                <address-family>
+                  <ipv4>
+                    <unicast>
+                      <label>
+                        <mode>
+                          <per-vrf/>
+                        </mode>
+                      </label>
+                      <bgp>
+                        <dampening/>
+                      </bgp>
+                      <redistribute>
+                        <connected/>
+                        <static/>
+                      </redistribute>
+                    </unicast>
+                  </ipv4>
+                  <?if {$IPV6_ENABLE = 'true'}?>
+                  <ipv6>
+                    <unicast>
+                      <label>
+                        <mode>
+                          <per-vrf/>
+                        </mode>
+                      </label>
+                      <bgp>
+                        <dampening/>
+                      </bgp>
+                      <redistribute>
+                        <connected/>
+                        <static/>
+                      </redistribute>
+                    </unicast>
+                  </ipv6>
+                  <?end?>
+                </address-family>
+              </vrf>
+            </bgp-no-instance>
+          </bgp>
+        </router>
+
+      </config>
+    </device>
+  </devices>
+</config-template>

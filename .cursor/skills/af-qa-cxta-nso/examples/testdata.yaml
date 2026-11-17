@@ -1,0 +1,67 @@
+# Reference test data for NSO service testing examples
+# Loaded via: Variables  testdata.yaml
+
+nso: nso
+
+# Service parameters for template rendering
+service1:
+  name: test-tunnel
+  tunnel_name: "1000"
+  src_device: iosv-1
+  dest_device: iosv-2
+  src_ip: 192.168.0.1
+  dest_ip: 192.168.0.3
+
+# Expected config diffs after service deployment
+service1_diffs:
+  src:
+    - |
+      Current configuration : 5027 bytes
+    - |
+      Current configuration : 5146 bytes
+      interface Tunnel1000
+       ip address 20.0.0.1 255.255.255.252
+       tunnel source 192.168.0.1
+       tunnel destination 192.168.0.3
+  dest:
+    - |
+      Current configuration : 5027 bytes
+    - |
+      Current configuration : 5146 bytes
+      interface Tunnel1000
+       ip address 20.0.0.2 255.255.255.252
+       tunnel source 192.168.0.3
+       tunnel destination 192.168.0.1
+
+# Jinja2 template for service payload
+service_template: |
+    <greTunnel>
+      <name>{{ name }}</name>
+      <tunnel-name>{{ tunnel_name }}</tunnel-name>
+      <src-device>{{ src_device }}</src-device>
+      <dest-device>{{ dest_device }}</dest-device>
+      <tunnel-source>{{ src_ip }}</tunnel-source>
+      <tunnel-destination>{{ dest_ip }}</tunnel-destination>
+    </greTunnel>
+
+# Static payload (no template rendering needed)
+service_payload: |
+    <greTunnel>
+      <name>test-tunnel</name>
+      <tunnel-name>1000</tunnel-name>
+      <src-device>iosv-1</src-device>
+      <dest-device>iosv-2</dest-device>
+      <tunnel-source>192.168.0.1</tunnel-source>
+      <tunnel-destination>192.168.0.3</tunnel-destination>
+    </greTunnel>
+
+# Invalid payload for negative testing
+negative_service_payload: |
+    <greTunnel>
+      <name>test-tunnel</name>
+      <tunnel-name>ILLEGAL</tunnel-name>
+      <src-device>iosv-1</src-device>
+      <dest-device>iosv-2</dest-device>
+      <tunnel-source>192.168.0.1</tunnel-source>
+      <tunnel-destination>192.168.0.3</tunnel-destination>
+    </greTunnel>

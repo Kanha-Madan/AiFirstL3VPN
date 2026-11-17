@@ -1,0 +1,273 @@
+name: NSO-CI-CT-CD
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Deploy target (matches the Jenkinsfile DEPLOY_TARGET parameter)'
+        type: choice
+        options: [none, dev, stage, prod]
+        default: none
+      nso_target_host:
+        description: 'SSH target for CD (user@host). Required when deploy_target != none'
+        type: string
+        default: ''
+      force_deploy:
+        description: 'Override the release/* branch restriction and allow CD from any branch. Default false — does NOT bypass the CI/CT test-pass requirement.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  PACKAGES_DIR: packages
+  # Fallback only — overwritten by the "Resolve NSO_VERSION" step below from
+  # nso-dependencies.yaml's nso-version: field (e.g. "6.4.1"), which is also
+  # the exact version download_dependencies.sh fetches. Must match that full
+  # patch version, not just major.minor, or "Setup NSO Container" can't find
+  # the downloaded nso-<ver>.container-image-build...signed.bin file.
+  NSO_VERSION: '6.4.1'
+  # run_id is unique per workflow run, so concurrent runs on one runner never share a name.
+  NSO_CONTAINER_NAME: nso-ci-${{ github.run_id }}
+  CONTAINER_RUNTIME: docker
+  # Keep the loaded NSO image (~730 MB) on the runner between runs; the
+  # container is still removed every run. Skips the extract + `docker load` on
+  # later runs. Set 'true' to delete the image after every run instead.
+  NSO_CLEANUP_IMAGE: 'false'
+  # RESTCONF username for this run's disposable NSO container. The password
+  # is generated in the job and is not stored in this file.
+  NSO_RESTCONF_USER: admin
+  ARTIFACT_DIR: .artifacts
+  NSO_ARTIFACT_BASE_URL: file://${{ github.workspace }}/binaries/nso
+  SONAR_PROJECT_KEY: ai-first-nso
+  SONAR_PROJECT_NAME: ai-first-nso
+  SONAR_HOST_URL: https://engci-sonar-blr.cisco.com/sonar
+  DEPLOY_TARGET: ${{ github.event.inputs.deploy_target || 'none' }}
+  NSO_TARGET_HOST: ${{ github.event.inputs.nso_target_host }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # CI + CT run as ONE job with sequential steps — this mirrors the Jenkinsfile's
+  # `agent any` model exactly. All of these steps `docker exec` into the SAME
+  # NSO container (${NSO_CONTAINER_NAME}) and share the SAME checked-out
+  # `packages/` directory (including NEDs extracted by download_dependencies.sh).
+  #
+  # Do NOT split this into multiple jobs. `actions/checkout` runs `git clean
+  # -ffdx` by default, which wipes untracked/gitignored paths like `packages/`
+  # and any running-container state is a fresh runner/VM per job on
+  # GitHub-hosted runners. Splitting this previously caused a real bug: NEDs
+  # downloaded+extracted into packages/ by download_dependencies.sh in one job
+  # were gone by the time a later job re-checked out the repo, so
+  # setup_packages.sh only ever compiled whatever packages/ already had
+  # checked into git — never the downloaded NED. See
+  # nso-agent/skills/nso/cicd-pipeline-setup/SKILL.md for the full rationale.
+  # ---------------------------------------------------------------------------
+  ci-ct:
+    name: NSO CI / CT
+    runs-on: cx-sao-ocp
+    environment: NSO-CI-CT-CD
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Fetch all history so gitleaks' origin/main..HEAD range resolves
+          # correctly on feature branches and pull requests.
+          fetch-depth: 0
+
+      - name: Prepare
+        run: mkdir -p reports .artifacts && chmod +x scripts/*.sh
+
+      # Free what earlier aborted/crashed runs leaked on this runner (stale
+      # labelled nso-ci-*/cxta-* containers, unused nso-test-network-* networks) before
+      # allocating more. Best-effort; only resources identifiable by name are touched.
+      - name: Prepare | Sweep stale containers/networks
+        run: bash scripts/cleanup.sh stale || true
+
+      # The project key at the top of each nso-dependencies.yaml block (e.g.
+      # "example-l3vpn 0.1:") is free-form and not parsed — only the nested
+      # nso-version: field matters, so this works regardless of how many
+      # differently-named project blocks exist.
+      - name: Resolve NSO_VERSION (from nso-dependencies.yaml)
+        run: |
+          resolved="$(grep -m1 -E '^[[:space:]]+nso-version:' nso-dependencies.yaml 2>/dev/null | sed -E 's/^[[:space:]]+nso-version:[[:space:]]*"?([0-9.]+)"?.*/\1/')"
+          if [ -n "${resolved}" ]; then
+            echo "NSO_VERSION=${resolved}" >> "$GITHUB_ENV"
+            echo "==> NSO_VERSION=${resolved} (from nso-dependencies.yaml)"
+          else
+            echo "WARNING: could not read nso-version: from nso-dependencies.yaml — keeping fallback NSO_VERSION=${NSO_VERSION}"
+          fi
+
+      # ---------------- CI ----------------
+      - name: CI | Download Dependencies (NSO + NEDs)
+        run: bash scripts/download_dependencies.sh
+        env:
+          TAILF_USERNAME: ${{ secrets.TAILF_USERNAME }}
+          TAILF_PASSWORD: ${{ secrets.TAILF_PASSWORD }}
+
+      - name: CI | Gitleaks
+        run: bash scripts/gitleaks.sh
+        env:
+          GITLEAKS_IMAGE: ${{ vars.GITLEAKS_IMAGE || 'ghcr.io/gitleaks/gitleaks:latest' }}
+          GITLEAKS_LOG_OPTS: origin/main..HEAD
+          REPORT_PATH: gitleaks-report.json
+
+      # SonarQube is a warning-only gate here — mirrors the Jenkinsfile's
+      # try/catch around this stage (which sets currentBuild.result =
+      # 'UNSTABLE' instead of failing). continue-on-error means a failing
+      # quality gate/scan does NOT fail this job or block any later step
+      # (Setup NSO Container, Build Packages, CT, Publish all still run).
+      - name: CI | SonarQube Scan
+        id: sonarqube
+        continue-on-error: true
+        run: bash scripts/sonarqube_scan.sh
+        env:
+          SONAR_HOST_URL: ${{ env.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ env.SONAR_PROJECT_KEY }}
+          SONAR_PROJECT_NAME: ${{ env.SONAR_PROJECT_NAME }}
+
+      - name: CI | SonarQube Scan Result
+        if: always()
+        run: |
+          if [ "${{ steps.sonarqube.outcome }}" = "failure" ]; then
+            echo "::warning::SonarQube quality gate failed; continuing without failing the pipeline."
+          fi
+
+      - name: CI | Generate RESTCONF password
+        run: |
+          set +x
+          python3 -c 'import secrets; print("NSO_RESTCONF_PASSWORD="+secrets.token_urlsafe(32))' >> "$GITHUB_ENV"
+
+      - name: CI | Setup NSO Container
+        run: bash scripts/setup_nso_container.sh up
+        env:
+          NSO_IMAGE: ${{ vars.NSO_IMAGE }}
+
+      - name: CI | Build Packages
+        run: bash scripts/setup_packages.sh
+
+      # ---------------- CT (skip on pull_request, same as before) ----------------
+      - name: CT | Netsim
+        if: github.event_name != 'pull_request'
+        run: bash scripts/netsim_simulation.sh
+
+      - name: CT | Dry-run Validation
+        if: github.event_name != 'pull_request'
+        run: bash scripts/dry_run_validation.sh
+
+      - name: CT | Service Commit & Check
+        if: github.event_name != 'pull_request'
+        run: bash scripts/service_commit_check.sh
+
+      - name: CT | Functional Testing (pyATS/Robot)
+        if: github.event_name != 'pull_request'
+        run: bash scripts/pyats_robot_validation.sh
+
+      - name: CT | Report Generation
+        if: always() && github.event_name != 'pull_request'
+        run: bash scripts/report_generation.sh
+
+      # ---------------- Publish (after CT/tests, not right after the build) ----------------
+      # Steps run sequentially and (without if: always()/failure()) only execute if
+      # every prior step succeeded, so this only bundles+publishes packages that have
+      # cleared Netsim/Dry-run/Commit & Check/Functional Testing. Same pull_request gate as CT so we
+      # don't publish an artifact whose tests never actually ran.
+      - name: Publish | Bundle Packages
+        if: github.event_name != 'pull_request'
+        run: bash scripts/publish_artifact.sh
+
+      # ---------------- post (always) ----------------
+      # Runs on success, failure and cancellation. Removes this run's NSO + CXTA
+      # containers (with volumes), the NSO image and any per-build network, then
+      # sweeps leaks from earlier runs. Best-effort; never changes the result.
+      - name: Cleanup containers, networks and images
+        if: always()
+        run: bash scripts/cleanup.sh all || true
+
+      - name: Upload artifacts and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nso-ci-ct-cd-${{ github.run_id }}
+          path: |
+            .artifacts/**
+            reports/**
+          retention-days: 14
+
+      - name: Notify failure
+        if: failure()
+        run: bash scripts/commit_status_notification.sh failure "Run ${{ github.run_id }} (CI/CT) failed" || true
+        env:
+          WEBEX_TOKEN: ${{ secrets.WEBEX_TOKEN }}
+          WEBEX_ROOM_ID: ${{ vars.WEBEX_ROOM_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # CD is a separate job on purpose: deploy_packages.sh / reload_packages.sh
+  # only need the .tar.gz artifacts published above and SSH to NSO_TARGET_HOST
+  # — they never touch the ephemeral CI container or packages/, so this job
+  # boundary doesn't hit the same state-loss problem as splitting CI/CT does.
+  # `environment:` gives stage/prod a native GitHub manual-approval gate
+  # (configure required reviewers on the "stage"/"prod" environments in repo
+  # settings) instead of a Jenkins-style `input` step.
+  #
+  # Gating (mirrors the Jenkinsfile CD `when` block):
+  #  1) Only runs for workflow_dispatch with deploy_target != 'none'.
+  #  2) Only runs on release/* branches, unless force_deploy was explicitly
+  #     set to true (default false) on the manual run.
+  #  3) `needs: ci-ct` + `needs.ci-ct.result == 'success'` ensures CD never
+  #     runs if any CI/CT step (including tests) failed — GitHub Actions
+  #     already skips dependent jobs on failure, this makes it explicit.
+  # ---------------------------------------------------------------------------
+  cd:
+    name: NSO CD
+    runs-on: cx-sao-ocp
+    needs: ci-ct
+    if: |
+      github.event_name == 'workflow_dispatch' &&
+      needs.ci-ct.result == 'success' &&
+      github.event.inputs.deploy_target != 'none' &&
+      (startsWith(github.ref_name, 'release/') || github.event.inputs.force_deploy == 'true')
+    environment: ${{ github.event.inputs.deploy_target }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download CI artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nso-ci-ct-cd-${{ github.run_id }}
+          path: .
+
+      - name: CD | Deploy Packages
+        run: bash scripts/deploy_packages.sh "${{ env.DEPLOY_TARGET }}"
+        env:
+          NSO_TARGET_HOST: ${{ env.NSO_TARGET_HOST }}
+
+      - name: CD | Reload Packages
+        run: bash scripts/reload_packages.sh
+        env:
+          NSO_TARGET_HOST: ${{ env.NSO_TARGET_HOST }}
+
+      - name: CD | Notify
+        if: always()
+        run: bash scripts/commit_status_notification.sh ${{ job.status == 'success' && 'success' || 'failure' }} "Deployed to ${{ env.DEPLOY_TARGET }}"
+        env:
+          WEBEX_TOKEN: ${{ secrets.WEBEX_TOKEN }}
+          WEBEX_ROOM_ID: ${{ vars.WEBEX_ROOM_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload CD artifacts/reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nso-cd-${{ github.run_id }}
+          path: |
+            .artifacts/**
+            reports/**
+          retention-days: 14

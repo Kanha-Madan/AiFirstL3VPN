@@ -1,0 +1,220 @@
+module l3vpn-ai {
+  yang-version 1.1;
+  namespace "http://example.com/l3vpn-ai";
+  prefix l3vpn-ai;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import tailf-common {
+    prefix tailf;
+  }
+  import tailf-ncs {
+    prefix ncs;
+  }
+
+  description
+    "L3VPN customer attachment on an IOS-XR PE: VRF with route-targets and
+     maximum-prefix, ingress police / egress shape QoS, QinQ sub-interface in
+     the VRF, and BGP VRF with RD, label mode per-vrf, dampening and
+     redistribution.";
+
+  revision 2026-11-17 {
+    description
+      "Initial revision (LLD L3VPN PE Attachment v1.0).";
+  }
+
+  list l3vpn-ai {
+    tailf:info "L3VPN PE attachment service";
+    key name;
+
+    leaf name {
+      tailf:info "Unique service id";
+      tailf:cli-allow-range;
+      type string;
+    }
+
+    uses ncs:service-data;
+    ncs:servicepoint l3vpn-ai-servicepoint;
+
+    leaf device-name {
+      tailf:info "Target PE device";
+      mandatory true;
+      type leafref {
+        path "/ncs:devices/ncs:device/ncs:name";
+      }
+    }
+
+    leaf ipv6-enable {
+      tailf:info "Render IPv6 VRF/interface/BGP sections";
+      type boolean;
+      default true;
+    }
+
+    leaf bgp-as {
+      tailf:info "Provider BGP AS number";
+      type uint32;
+      default 9730;
+    }
+
+    leaf bandwidth {
+      tailf:info "Service bandwidth in kbps";
+      mandatory true;
+      type uint32 {
+        range "1..100000000";
+      }
+    }
+
+    container vrf {
+      leaf vrf-name {
+        tailf:info "VRF name";
+        mandatory true;
+        type string {
+          length "1..32";
+        }
+      }
+
+      leaf rd-value {
+        tailf:info "RD value (RD = bgp-as:rd-value)";
+        mandatory true;
+        type uint32;
+      }
+
+      list route-target {
+        tailf:info "Route-target value (RT = bgp-as:rt-value)";
+        key rt-value;
+        min-elements 1;
+
+        leaf rt-value {
+          type uint32;
+        }
+
+        leaf direction {
+          type enumeration {
+            enum import;
+            enum export;
+            enum both;
+          }
+          default both;
+        }
+      }
+
+      container maximum-prefix {
+        leaf limit {
+          tailf:info "Maximum number of prefixes";
+          type uint32;
+          default 20000;
+        }
+
+        leaf threshold {
+          tailf:info "Threshold percentage for warning";
+          type uint8 {
+            range "1..100";
+          }
+          default 80;
+        }
+      }
+    }
+
+    container qos {
+      leaf in-policy-name {
+        tailf:info "Ingress policy-map name";
+        mandatory true;
+        type string;
+      }
+
+      leaf out-policy-name {
+        tailf:info "Egress policy-map name";
+        mandatory true;
+        type string;
+      }
+
+      leaf mpls-exp {
+        tailf:info "MPLS EXP imposition value on conform";
+        type uint8 {
+          range "0..7";
+        }
+        default 0;
+      }
+
+      leaf burst {
+        tailf:info "Police burst in bytes (default: rate*1.5/8)";
+        type uint32;
+      }
+
+      leaf peak-burst {
+        tailf:info "Police peak-burst in bytes (default: 2*burst)";
+        type uint32;
+      }
+    }
+
+    container interface {
+      must "../ipv6-enable = 'false' or ipv6-address" {
+        error-message "interface/ipv6-address is required when ipv6-enable is true";
+      }
+
+      leaf interface-type {
+        tailf:info "Parent interface type";
+        mandatory true;
+        type enumeration {
+          enum GigabitEthernet;
+        }
+      }
+
+      leaf interface-id {
+        tailf:info "Parent interface id, e.g. 0/0/1";
+        mandatory true;
+        type string {
+          pattern "[0-9]+(/[0-9]+)*";
+        }
+      }
+
+      leaf subintf-id {
+        tailf:info "Sub-interface number";
+        mandatory true;
+        type uint32 {
+          range "1..2147483647";
+        }
+      }
+
+      leaf description {
+        tailf:info "Sub-interface description";
+        type string;
+      }
+
+      leaf svlan {
+        tailf:info "Outer (S-VLAN) dot1q tag";
+        mandatory true;
+        type uint16 {
+          range "1..4094";
+        }
+      }
+
+      leaf cvlan {
+        tailf:info "Inner (C-VLAN) second-dot1q tag";
+        mandatory true;
+        type uint16 {
+          range "1..4094";
+        }
+      }
+
+      leaf ip-address {
+        tailf:info "PE-CE IPv4 address";
+        mandatory true;
+        type inet:ipv4-address;
+      }
+
+      leaf subnet-mask {
+        tailf:info "PE-CE IPv4 subnet mask (dotted)";
+        mandatory true;
+        type inet:ipv4-address;
+      }
+
+      leaf ipv6-address {
+        tailf:info "PE-CE IPv6 address/prefix-length";
+        when "../../ipv6-enable = 'true'";
+        type tailf:ipv6-address-and-prefix-length;
+      }
+    }
+  }
+}

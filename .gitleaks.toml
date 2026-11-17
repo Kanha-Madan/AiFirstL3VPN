@@ -1,0 +1,54 @@
+# Gitleaks configuration for NSO package repository
+# Docs: https://github.com/gitleaks/gitleaks#configuration
+
+title = "NSO Package Gitleaks Config"
+
+[extend]
+useDefault = true
+
+# ─────────────────────────────────────────────────────────────
+# Allowlist — known safe patterns that trigger false positives
+# in NSO/network automation contexts.
+# ─────────────────────────────────────────────────────────────
+[[allowlists]]
+description = "NSO YANG example values and netsim placeholder addresses"
+regexTarget = "line"
+regexes = [
+  '''192\.0\.2\.\d+''',
+  '''198\.51\.100\.\d+''',
+  '''203\.0\.113\.\d+''',
+  '''2001:db8:''',
+  '''netsim''',
+  '''http://example\.com/nso/''',
+]
+
+[[allowlists]]
+description = "IOS-XR encrypted password lines in reference specs (not plaintext secrets)"
+regexTarget = "line"
+regexes = [
+  '''password encrypted [0-9A-Fa-f]+''',
+  '''password encrypted <[^>]+>''',
+]
+
+[[allowlists]]
+description = "NSO local dev default RESTCONF credentials in documentation examples"
+regexTarget = "secret"
+regexes = [
+  '''^admin:admin$''',
+]
+paths = [
+  '''agent_primitives/''',
+  '''\.agents/''',
+  '''docker/''',
+  '''scripts/''',
+]
+
+[[allowlists]]
+description = "Test fixture files and netsim init XMLs may contain placeholder credentials"
+paths = [
+  '''reference_files/''',
+  '''packages/.*/test/''',
+  '''packages/.*/netsim/''',
+  '''\.artifacts/''',
+  '''gitleaks-report\.json''',
+]

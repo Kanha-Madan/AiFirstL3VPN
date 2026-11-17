@@ -1,0 +1,23 @@
+# Python recipe for the af-nso-spec-document skill.
+#
+# Third-party libraries used to read requirement inputs (Excel/Word/YAML/raw
+# config). Prefer the ambient python3 if it already imports these; otherwise
+# install into a user-level cache venv OUTSIDE the project — never a .venv inside
+# the skill directory, which is committed under .cursor/.github. Example:
+#   AF_VENV="${XDG_CACHE_HOME:-$HOME/.cache}/aifirst/spec-document-venv"
+#   python3 -m venv "$AF_VENV" && "$AF_VENV/bin/pip" install -r assets/requirements.txt
+#
+# Keep this minimal — only libraries this skill actually uses.
+
+# Read Excel (.xlsx) requirement inputs (af-nso-spec-document).
+openpyxl==3.1.5
+
+# Read Word (.docx) requirement inputs (af-nso-spec-document).
+python-docx==1.1.2
+
+# Parse/validate YAML spec files (af-nso-spec-document, af-nso-spec-orchestrator).
+PyYAML==6.0.2
+
+# Detect encoding of plain text files (.txt, .cfg, raw config) (af-nso-spec-document).
+chardet==5.0.0
+

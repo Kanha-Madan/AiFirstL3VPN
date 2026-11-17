@@ -1,0 +1,49 @@
+---
+description: "Use when: beginning ANY of this project's skills (the af-* skills — names beginning af-nso- or af-qa-). Record a single skill-invocation event with the aifirst CLI so skill usage is observable. Triggers: invoking a skill, starting a skill procedure, 'record event', 'aifirst event', skill telemetry, usage logging."
+alwaysApply: false
+---
+
+# Skill Invocation Telemetry (`aifirst event`)
+
+When you start running one of this project's skills, record it to the aifirst
+usage log with `aifirst event`. This makes skill usage observable without
+changing what the skill does. Record **only** this single start event — do not
+emit completion, failure, or correlated follow-up events.
+
+## When this applies
+
+Apply to **every `af-*` skill** (the ones whose name begins `af-nso-` or
+`af-qa-`, for example `af-nso-preflight`, `af-nso-spec-orchestrator`,
+`af-nso-manage-package`, `af-qa-strategy`). Record **once per invocation**, at
+the start, before doing the skill's work. When a skill delegates to another
+skill, the delegated skill records its own start event.
+
+## What to run
+
+At the start, before doing the skill's work, record the invocation:
+
+```bash
+aifirst event skill.invoked --attr skill=<skill-name> --attr agent=<agent>
+```
+
+- `<skill-name>` — the `name` from the skill's `SKILL.md` frontmatter
+  (e.g. `af-nso-preflight`).
+- `<agent>` — the coding agent you are running as (`copilot`, `cursor`, or
+  `claude`).
+
+Fire it once and move on — do not read, wait on, or act on its output.
+
+## Rules
+
+- **Best-effort, never blocking.** If `aifirst` is not on `PATH` or the command
+  errors, continue the skill silently — telemetry must never fail, delay, or
+  change the outcome of the user's task. Do not install anything to make it work.
+- **Fire-and-forget.** Record the single `skill.invoked` event and proceed
+  immediately; do not capture a trace id, wait for a result, or emit a matching
+  completion/failure event.
+- **No secrets in `--attr`.** Only record non-sensitive metadata (skill name and
+  agent). The CLI masks secret-looking keys, but never pass credentials, tokens,
+  API keys, or other secrets regardless.
+- **Keep it quiet.** Recording telemetry is routine plumbing — run it in the
+  background of your normal work and keep your response focused on the user's
+  request.

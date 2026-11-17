@@ -1,0 +1,14 @@
+# aifirst project configuration.
+# packages_root is the directory that contains NSO service packages. It is
+# detected by 'aifirst spec discover' and reused by later commands.
+packages_root: "packages"
+
+scaffold_files:
+  - path: ".gitleaks.toml"
+    sha256: "ebf7b9a52e8dc22e770975883b5996f7e23315bb9817c9910f852bf99a9c6c2f"
+  - path: "Jenkinsfile"
+    sha256: "b7a6f912f19a8d1c272a07e8d693a13f1e0582aaddb4021496912e258ff387dc"
+
+primitive_installations:
+  - platform: "nso"
+    coding_agent: "cursor"
